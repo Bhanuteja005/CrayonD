@@ -3,7 +3,7 @@
 import { ChatInterface } from "@/components/ChatInterface"
 import { DashboardSidebar } from "@/components/DashboardSidebar"
 import { useSearchParams } from "next/navigation"
-import { createContext, useCallback, useEffect, useState } from "react"
+import { createContext, Suspense, useCallback, useEffect, useState } from "react"
 import { v4 as uuidv4 } from "uuid"
 
 // Create a context for sidebar state that can be accessed from any component
@@ -13,7 +13,8 @@ export const SidebarContext = createContext({
   toggleMobileMenu: () => {},
 });
 
-export default function DashboardPage() {
+// Inner component to handle search params
+function DashboardContent() {
   const searchParams = useSearchParams()
   const [activeChat, setActiveChat] = useState<string>("")
   const [chatHistory, setChatHistory] = useState<any[]>([])
@@ -297,5 +298,26 @@ export default function DashboardPage() {
         </div>
       </div>
     </SidebarContext.Provider>
+  )
+}
+
+// Wrap the content in a suspense boundary
+export default function DashboardPage() {
+  return (
+    <Suspense fallback={<DashboardLoading />}>
+      <DashboardContent />
+    </Suspense>
+  )
+}
+
+// Simple loading component
+function DashboardLoading() {
+  return (
+    <div className="flex h-screen items-center justify-center bg-slate-50">
+      <div className="flex flex-col items-center space-y-4">
+        <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-t-2 border-blue-500"></div>
+        <p className="text-sm text-slate-500">Loading interview coach...</p>
+      </div>
+    </div>
   )
 }
