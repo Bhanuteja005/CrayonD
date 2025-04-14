@@ -1,0 +1,6 @@
+graph TD;
+    A["User Message"]-->B["Generate Embedding"]
+    B-->C["Store in Pinecone"]
+    D["New User Query"]-->E["Generate Query Embedding"]
+    E-->F["Retrieve Similar Memories"]
+    F-->G["Include in Context"]

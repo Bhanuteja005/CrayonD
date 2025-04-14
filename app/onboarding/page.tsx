@@ -10,6 +10,13 @@ export default function OnboardingPage() {
   const router = useRouter()
 
   const handleProfileComplete = () => {
+    // Set a flag to indicate the user is coming from onboarding
+    sessionStorage.setItem('fromOnboarding', 'true');
+
+    // Clear any previous tour status to ensure the tour guide will show
+    localStorage.removeItem('hasSeenTour');
+
+    // Then continue with your existing redirect code
     router.push("/dashboard")
   }
 

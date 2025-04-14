@@ -1,6 +1,7 @@
 "use client"
 
 import { SidebarContext } from "@/app/dashboard/page"
+import { TourGuide, TourStep } from "@/components/TourGuide"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -13,7 +14,7 @@ import { useChat } from "ai/react"
 import { AnimatePresence, motion } from "framer-motion"
 import { Briefcase, Building, Globe, HelpCircle, Lightbulb, Loader2, Menu, Newspaper, Send, Star, User } from "lucide-react"
 import { useRouter } from "next/navigation"
-import { useContext, useEffect, useRef, useState } from "react"
+import { useCallback, useContext, useEffect, useRef, useState } from "react"
 import ReactMarkdown from 'react-markdown'
 import { v4 as uuidv4 } from "uuid"
 
@@ -58,6 +59,42 @@ export function ChatInterface({ chatId, onUpdateChatTitle }: ChatInterfaceProps)
   const [memoryContext, setMemoryContext] = useState<MemoryContext | null>(null)
   const [memoryActive, setMemoryActive] = useState(false)
   
+  // Tour state
+  const [runTour, setRunTour] = useState(false);
+  const [hasCheckedTour, setHasCheckedTour] = useState(false);
+  const [tourSteps] = useState<TourStep[]>([
+    {
+      target: '.chat-input-area',
+      title: 'Chat Input',
+      content: 'This is where you can type your interview questions and get AI assistance.',
+      placement: 'top',
+    },
+    {
+      target: '.web-search-button',
+      title: 'Web Search',
+      content: 'Click here to search the web for company information and industry trends.',
+      placement: 'bottom'
+    },
+    {
+      target: '.news-search-button',
+      title: 'Industry News',
+      content: 'Click here to search for the latest industry news that might be relevant for your interviews.',
+      placement: 'bottom'
+    },
+    {
+      target: '.send-message-button',
+      title: 'Send Message',
+      content: 'Click this button to send your message or search query.',
+      placement: 'left'
+    },
+    {
+      target: '.chat-messages-area',
+      title: 'Chat History',
+      content: 'Your conversation with the interview coach will appear here.',
+      placement: 'bottom'
+    }
+  ]);
+  
   const inputRef = useRef<HTMLInputElement>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const apiCallInProgress = useRef(false)
@@ -69,19 +106,52 @@ export function ChatInterface({ chatId, onUpdateChatTitle }: ChatInterfaceProps)
   const [isMobileView, setIsMobileView] = useState(false);
   const [chatHistory, setChatHistory] = useState<any[]>([])
 
-  // Detect mobile view
+  // Start the tour
+  const startTour = () => {
+    setRunTour(true);
+  };
+
+  // Handle tour complete
+  const handleTourComplete = () => {
+    setRunTour(false);
+    localStorage.setItem('hasSeenTour', 'true');
+  };
+
+  // Handle tour skip
+  const handleTourSkip = () => {
+    setRunTour(false);
+    localStorage.setItem('hasSeenTour', 'true');
+  };
+
+  // Improved check if user has seen the tour before - fixed to work with onboarding
   useEffect(() => {
-    const checkIsMobile = () => {
-      setIsMobileView(window.innerWidth < 768);
+    if (hasCheckedTour) return; // Only run once
+    
+    const checkTourStatus = () => {
+      const hasSeenTour = localStorage.getItem('hasSeenTour');
+      const fromOnboarding = sessionStorage.getItem('fromOnboarding');
+    
+      // If user is coming from onboarding or never seen tour, show it
+      if ((!hasSeenTour || fromOnboarding === 'true') && !isLoadingHistory) {
+        // Clear the fromOnboarding flag
+        if (fromOnboarding) {
+          sessionStorage.removeItem('fromOnboarding');
+        }
+        
+        // Small delay to ensure components have rendered
+        setTimeout(() => {
+          setRunTour(true);
+        }, 1500);
+      }
+      
+      setHasCheckedTour(true);
     };
     
-    checkIsMobile();
-    window.addEventListener('resize', checkIsMobile);
-    
-    return () => {
-      window.removeEventListener('resize', checkIsMobile);
-    };
-  }, []);
+    // Only check tour status once everything is loaded
+    if (!isLoadingHistory && profileData) {
+      checkTourStatus();
+    }
+  }, [isLoadingHistory, profileData, hasCheckedTour]);
 
   // Initialize session ID for memory persistence
   useEffect(() => {
@@ -298,26 +368,38 @@ export function ChatInterface({ chatId, onUpdateChatTitle }: ChatInterfaceProps)
     }
   })
 
-  // Load profile data and prepare to fetch messages
-  useEffect(() => {
-    const storedProfile = localStorage.getItem('userProfile')
-    if (storedProfile) {
-      setProfileData(JSON.parse(storedProfile))
-    } else {
-      router.push('/onboarding')
-      return
+  // Optimize profile loading - memoize to prevent unnecessary re-renders
+  const loadProfileData = useCallback(async () => {
+    try {
+      const storedProfile = localStorage.getItem('userProfile');
+      if (storedProfile) {
+        const parsedProfile = JSON.parse(storedProfile);
+        setProfileData(parsedProfile);
+      } else {
+        router.push('/onboarding');
+        return;
+      }
+    } catch (error) {
+      console.error("Error loading profile:", error);
+      router.push('/onboarding');
     }
+  }, [router]);
+
+  // Load profile data and prepare to fetch messages - optimized
+  useEffect(() => {
+    setIsInitialFetch(true);
+    setIsLoadingHistory(true);
+    chatInitializedRef.current = false;
     
-    setIsInitialFetch(true)
-    setIsLoadingHistory(true)
-    chatInitializedRef.current = false
+    // Load profile data
+    loadProfileData();
     
     // Initialize
-    isMountedRef.current = true
+    isMountedRef.current = true;
     return () => {
-      isMountedRef.current = false
-    }
-  }, [chatId, router])
+      isMountedRef.current = false;
+    };
+  }, [chatId, loadProfileData]);
   
   // Fetch messages from backend/Pinecone for this specific chat
   useEffect(() => {
@@ -811,6 +893,14 @@ export function ChatInterface({ chatId, onUpdateChatTitle }: ChatInterfaceProps)
 
   return (
     <div className="flex flex-col h-full overflow-hidden bg-slate-50">
+      {/* Custom Tour Guide */}
+      <TourGuide 
+        steps={tourSteps}
+        run={runTour}
+        onComplete={handleTourComplete}
+        onSkip={handleTourSkip}
+      />
+
       {/* Chat Header with Profile Summary */}
       <div className="bg-white border-b border-slate-200 shadow-sm sticky top-0 z-10">
         <div className="p-4 max-w-3xl mx-auto flex items-center">
@@ -826,9 +916,18 @@ export function ChatInterface({ chatId, onUpdateChatTitle }: ChatInterfaceProps)
             <h2 className="font-medium text-lg text-slate-800">
               CrayonD AI
             </h2>
-            
-          
           </div>
+          
+          {/* Help button to start tour */}
+          <Button 
+            variant="ghost" 
+            size="icon" 
+            className="h-8 w-8 text-slate-500 hover:text-blue-600" 
+            onClick={startTour}
+          >
+            <HelpCircle className="h-5 w-5" />
+            <span className="sr-only">Start tour</span>
+          </Button>
         </div>
          
         {profileData && !isMobileView && (
@@ -861,7 +960,7 @@ export function ChatInterface({ chatId, onUpdateChatTitle }: ChatInterfaceProps)
       </div>
       
       {/* Messages Area */}
-      <div className="flex-1 overflow-y-auto p-4 scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent">
+      <div className="flex-1 overflow-y-auto p-4 scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent chat-messages-area">
         <div className="max-w-3xl mx-auto space-y-6">
           {isLoadingHistory ? (
             <motion.div 
@@ -1025,7 +1124,7 @@ export function ChatInterface({ chatId, onUpdateChatTitle }: ChatInterfaceProps)
 
       {/* Input Area */}
       <div className="p-4 border-t border-slate-200 bg-white">
-        <div className="max-w-3xl mx-auto relative">
+        <div className="max-w-3xl mx-auto relative chat-input-area">
           {/* Input wrapper */}
           <div className="relative flex items-center">
             {/* Search indicator with label directly in the input field */}
@@ -1076,12 +1175,12 @@ export function ChatInterface({ chatId, onUpdateChatTitle }: ChatInterfaceProps)
                             setSearchType('web');
                             handleSearch('web');
                           }}
-                          className="h-7 w-7 rounded-full hover:bg-blue-50"
+                          className="h-7 w-7 rounded-full hover:bg-blue-50 web-search-button"
                         >
                           <Globe className="h-4 w-4 text-slate-500 hover:text-blue-600" />
                         </Button>
                       </TooltipTrigger>
-                      <TooltipContent side="bottom">
+                      <TooltipContent side="top" align="center" className="bg-blue-50 border-blue-200 text-blue-700 font-medium">
                         <p>Search the web for company info</p>
                       </TooltipContent>
                     </Tooltip>
@@ -1099,12 +1198,12 @@ export function ChatInterface({ chatId, onUpdateChatTitle }: ChatInterfaceProps)
                             setSearchType('news');
                             handleSearch('news');
                           }}
-                          className="h-7 w-7 rounded-full hover:bg-green-50"
+                          className="h-7 w-7 rounded-full hover:bg-green-50 news-search-button"
                         >
                           <Newspaper className="h-4 w-4 text-slate-500 hover:text-green-600" />
                         </Button>
                       </TooltipTrigger>
-                      <TooltipContent side="bottom">
+                      <TooltipContent side="top" align="center" className="bg-green-50 border-green-200 text-green-700 font-medium">
                         <p>Search industry news</p>
                       </TooltipContent>
                     </Tooltip>
@@ -1148,7 +1247,7 @@ export function ChatInterface({ chatId, onUpdateChatTitle }: ChatInterfaceProps)
                   onClick={handleSendMessage}
                   disabled={!inputValue.trim()}
                   className={cn(
-                    "rounded-full text-white shadow-md transition-all",
+                    "rounded-full text-white shadow-md transition-all send-message-button",
                     !inputValue.trim() ? "opacity-70" : "",
                     searchMode === 'web' ? "bg-blue-500 hover:bg-blue-600" :
                     searchMode === 'news' ? "bg-green-500 hover:bg-green-600" : 

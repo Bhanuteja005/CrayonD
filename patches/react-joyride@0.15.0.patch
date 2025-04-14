@@ -1,0 +1,14 @@
+diff --git a/node_modules/react-joyride/dist/index.mjs b/node_modules/react-joyride/dist/index.mjs
+index aaf8a93..e3b9d72 100644
+--- a/node_modules/react-joyride/dist/index.mjs
++++ b/node_modules/react-joyride/dist/index.mjs
+@@ -1,6 +1,7 @@
+ import * as React from 'react';
+-import * as ReactDOM from 'react-dom';
++import * as ReactDOM from 'react-dom/client';
+ import { createPortal } from 'react-dom';
++import { unmountComponentAtNode, render } from '../../lib/react-compat';
+ 
+ // Define custom patched functions
++ReactDOM.unmountComponentAtNode = unmountComponentAtNode;
++ReactDOM.render = render;
