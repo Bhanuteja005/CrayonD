@@ -47,6 +47,8 @@
     "cmdk": "1.0.4",
     "date-fns": "4.1.0",
     "embla-carousel-react": "8.5.1",
+    "framer": "^2.4.1",
+    "framer-motion": "^12.6.5",
     "input-otp": "1.4.1",
     "langchain": "^0.2.0",
     "lucide-react": "^0.454.0",
@@ -63,6 +65,7 @@
     "sonner": "^1.7.1",
     "tailwind-merge": "^2.5.5",
     "tailwindcss-animate": "^1.0.7",
+    "uuid": "^11.1.0",
     "vaul": "^0.9.6",
     "zod": "^3.24.1"
   },

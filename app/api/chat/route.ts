@@ -1,4 +1,3 @@
-import { InterviewToolkit } from "@/lib/interview-tools";
 import { PineconeStore } from "@/lib/pinecone-store";
 import { getLatestNews, searchGoogle } from "@/lib/realTimeData";
 import { GoogleGenerativeAI } from "@google/generative-ai";
@@ -19,7 +18,7 @@ let searchState: SearchQueries = {
 
 export async function POST(req: Request) {
   try {
-    const { messages, userProfile, searchType, query, dataSource } = await req.json();
+    const { messages, userProfile, searchType, query, dataSource, chatId, memoryContext } = await req.json();
 
     // Update search state if query is provided
     if (query) {
@@ -95,20 +94,29 @@ export async function POST(req: Request) {
 
     // Create a unique session ID for the user
     const sessionId = userProfile?.name
-      ? `user-${userProfile.name.toLowerCase().replace(/\s+/g, "-")}`
-      : "anonymous-user";
+      ? `user-${userProfile.name.toLowerCase().replace(/\s+/g, "-")}-${chatId}`
+      : `anonymous-user-${chatId}`;
 
     // Initialize memory store
     const memoryStore = await PineconeStore.getInstance();
 
+    // Get the latest user message
+    const userMessage = formattedMessages.length > 0 ? 
+      formattedMessages[formattedMessages.length - 1].content : 
+      "";
+
     // Retrieve relevant memories for context
     const relevantMemories = await memoryStore.retrieveMemories(
       sessionId,
-      formattedMessages[formattedMessages.length - 1]?.content || "",
+      userMessage  // Pass the user message as queryText
     );
 
-    // Initialize interview tools
-    const interviewTools = new InterviewToolkit();
+    // Extract memory data from either provided context or retrieved memories
+    const memoryData = memoryContext || {
+      sessionId,
+      memories: relevantMemories,
+      lastInteraction: new Date().toISOString()
+    };
 
     // Create system message with context and tools
     const systemMessage = `
@@ -121,17 +129,26 @@ export async function POST(req: Request) {
       - Name: ${userProfile.name}
       - Target Role: ${userProfile.targetRole}
       - Experience: ${userProfile.experience} years
-      - Skills: ${userProfile.skills.join(", ")}
+      - Target Company: ${userProfile.targetCompany || "Not specified"}
+      - Top Skills: ${userProfile.topSkill || "Not specified"}
+      - Education: ${userProfile.education || "Not specified"}
+      - Challenging Trait: ${userProfile.challengingTrait || "Not specified"}
       `
           : "No profile information available yet."
       }
       
       Previous Context:
       ${
-        relevantMemories.length > 0
+        memoryData.memories && memoryData.memories.length > 0
+          ? `Here are relevant points from previous conversations: ${memoryData.memories.join("\n")}`
+          : relevantMemories.length > 0
           ? `Here are relevant points from previous conversations: ${relevantMemories.join("\n")}`
           : "No previous context available."
       }
+      
+      ${memoryData.conversationTopic ? `This conversation is primarily about: ${memoryData.conversationTopic}` : ''}
+      ${memoryData.lastInteraction ? `The last interaction was on: ${new Date(memoryData.lastInteraction).toDateString()}` : ''}
+      ${memoryData.keywords && memoryData.keywords.length > 0 ? `Key topics discussed: ${memoryData.keywords.join(', ')}` : ''}
       
       Your capabilities:
       1. Provide common interview questions for the user's target role
@@ -148,10 +165,61 @@ export async function POST(req: Request) {
       - Be concise but comprehensive
       
       Be supportive, professional, and provide specific, actionable advice.
+      
+      IMPORTANT: When the user asks if you remember something from previous conversations, refer to the previous context provided above to demonstrate your memory capabilities. Acknowledge details they've shared before.
     `;
 
-    // Get the latest user message
-    const userMessage = formattedMessages[formattedMessages.length - 1].content;
+    // Extract keywords for memory if we have a user message
+    const extractKeywords = (text: string): string[] => {
+      if (!text || text.length < 10) return [];
+      
+      // Common words to filter out
+      const commonWords = ['i', 'me', 'my', 'myself', 'we', 'our', 'ours', 'ourselves', 
+        'you', 'your', 'yours', 'yourself', 'yourselves', 'he', 'him', 'his', 'himself', 
+        'she', 'her', 'hers', 'herself', 'it', 'its', 'itself', 'they', 'them', 'their', 
+        'theirs', 'themselves', 'what', 'which', 'who', 'whom', 'this', 'that', 'these', 
+        'those', 'am', 'is', 'are', 'was', 'were', 'be', 'been', 'being', 'have', 'has', 
+        'had', 'having', 'do', 'does', 'did', 'doing', 'a', 'an', 'the', 'and', 'but', 
+        'if', 'or', 'because', 'as', 'until', 'while', 'of', 'at', 'by', 'for', 'with', 
+        'about', 'against', 'between', 'into', 'through', 'during', 'before', 'after', 
+        'above', 'below', 'to', 'from', 'up', 'down', 'in', 'out', 'on', 'off', 'over', 
+        'under', 'again', 'further', 'then', 'once', 'here', 'there', 'when', 'where', 
+        'why', 'how', 'all', 'any', 'both', 'each', 'few', 'more', 'most', 'other', 
+        'some', 'such', 'no', 'nor', 'not', 'only', 'own', 'same', 'so', 'than', 'too', 
+        'very', 'can', 'will', 'just', 'don', 'should', 'now'];
+      
+      const words = text.toLowerCase()
+        .replace(/[^\w\s]/g, '')
+        .split(/\s+/)
+        .filter(word => word.length > 3 && !commonWords.includes(word));
+      
+      // Count word frequency
+      const wordCount: {[key: string]: number} = {};
+      words.forEach(word => {
+        wordCount[word] = (wordCount[word] || 0) + 1;
+      });
+      
+      // Get top keywords (up to 5)
+      return Object.entries(wordCount)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(entry => entry[0]);
+    };
+
+    // Extract keywords and update memory context
+    const extractedKeywords = extractKeywords(userMessage);
+    const existingKeywords = memoryData.keywords || [];
+    
+    // Update memory context
+    const updatedMemoryContext = {
+      ...memoryData,
+      sessionId,
+      conversationTopic: memoryData.conversationTopic || (userMessage.length > 50 
+        ? userMessage.substring(0, 50) + '...' 
+        : userMessage),
+      keywords: [...new Set([...existingKeywords, ...extractedKeywords])].slice(0, 10),
+      lastInteraction: new Date().toISOString(),
+    };
 
     // Initialize Gemini with the correct model
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
@@ -183,15 +251,26 @@ export async function POST(req: Request) {
         const lastUserMessage = formattedMessages[formattedMessages.length - 1];
         if (lastUserMessage.role === "user") {
           await memoryStore.storeMemory(sessionId, lastUserMessage.content, responseText);
+          
+          // Update memory context with the new conversation
+          if (!updatedMemoryContext.memories) {
+            updatedMemoryContext.memories = [];
+          }
+          
+          // Add new memory at the beginning
+          const newMemory = `USER: ${lastUserMessage.content}\nAI: ${responseText}`;
+          updatedMemoryContext.memories = [newMemory, ...(updatedMemoryContext.memories || [])].slice(0, 5);
         }
       }
 
-      // Return the response
+      // Return the response with memory context as a separate property
+      // This prevents the memory context from appearing in the visible message
       return new Response(
         JSON.stringify({
           id: Date.now().toString(),
           role: "assistant",
           content: responseText,
+          memoryContext: updatedMemoryContext // Send as a separate property
         }),
         {
           headers: {

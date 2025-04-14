@@ -1,5 +1,8 @@
-import type { Tool } from "@ai-sdk/core"
+import type { Tool } from "@ai-sdk/core";
 
+/**
+ * A collection of tools to assist with interview preparation
+ */
 export class InterviewToolkit {
   private tools: Tool[]
 
@@ -9,6 +12,126 @@ export class InterviewToolkit {
 
   getTools(): Tool[] {
     return this.tools
+  }
+
+  /**
+   * Generates common interview questions for a specific role
+   */
+  public generateRoleSpecificQuestions(role: string): string[] {
+    const commonQuestions = [
+      "Tell me about yourself",
+      "Why do you want to work for this company?",
+      "Where do you see yourself in 5 years?",
+      "What are your strengths and weaknesses?",
+      "Tell me about a time you faced a challenge at work"
+    ];
+    
+    const roleSpecificQuestions: Record<string, string[]> = {
+      "Software Engineer": [
+        "What's your experience with algorithms and data structures?",
+        "How do you approach debugging a complex issue?",
+        "Describe a project where you had to optimize performance",
+        "How do you stay up-to-date with the latest technologies?",
+        "How would you explain a technical concept to a non-technical person?"
+      ],
+      "Product Manager": [
+        "How do you prioritize features for a product?",
+        "Describe a product you launched from concept to release",
+        "How do you gather and incorporate user feedback?",
+        "How do you work with engineering teams?",
+        "Tell me about a time you had to make a difficult product decision"
+      ],
+      "Data Scientist": [
+        "Explain a complex data analysis you performed",
+        "How do you validate your models?",
+        "What's your experience with big data technologies?",
+        "How do you communicate technical findings to stakeholders?",
+        "Tell me about a time your analysis led to a significant business decision"
+      ],
+      "Marketing": [
+        "Describe a successful campaign you managed",
+        "How do you measure the success of marketing initiatives?",
+        "How do you stay current with marketing trends?",
+        "Tell me about a time a marketing campaign didn't work as expected",
+        "How do you identify and target your audience?"
+      ],
+      "Sales": [
+        "Describe your sales process",
+        "How do you handle objections?",
+        "Tell me about your biggest sale",
+        "How do you build relationships with clients?",
+        "How do you stay motivated during a sales slump?"
+      ]
+    };
+    
+    // Create a normalized role for lookup
+    const normalizedRole = Object.keys(roleSpecificQuestions).find(
+      key => role.toLowerCase().includes(key.toLowerCase())
+    );
+    
+    return [
+      ...commonQuestions,
+      ...(normalizedRole ? roleSpecificQuestions[normalizedRole] : [])
+    ];
+  }
+  
+  /**
+   * Formats a response using the STAR method
+   */
+  public formatSTARResponse(input: {
+    situation: string;
+    task: string;
+    action: string;
+    result: string;
+  }): string {
+    return `
+      ## STAR Method Response
+
+      ### Situation
+      ${input.situation}
+
+      ### Task
+      ${input.task}
+
+      ### Action
+      ${input.action}
+
+      ### Result
+      ${input.result}
+    `;
+  }
+  
+  /**
+   * Provides feedback on a user's interview answer
+   */
+  public provideAnswerFeedback(answer: string): string {
+    // This would include more sophisticated analysis in a real implementation
+    const feedback = {
+      strengths: [
+        "Good use of specific examples",
+        "Clear structure to your response",
+        "Effectively highlighted your skills"
+      ],
+      improvements: [
+        "Consider quantifying your results more",
+        "Your answer could be more concise",
+        "Add more context about the situation"
+      ],
+      overallRating: "Strong"
+    };
+    
+    return `
+      ## Feedback on Your Answer
+
+      ### Strengths
+      ${feedback.strengths.map(s => `- ${s}`).join('\n')}
+
+      ### Areas for Improvement
+      ${feedback.improvements.map(i => `- ${i}`).join('\n')}
+
+      ### Overall Assessment
+      ${feedback.overallRating}
+    `;
   }
 
   private createQuestionGeneratorTool(): Tool {
