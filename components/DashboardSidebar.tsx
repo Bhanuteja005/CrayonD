@@ -101,13 +101,16 @@ export function DashboardSidebar({
     router.push('/');
   }
 
-  // Enhanced new chat handler
+  // Enhanced new chat handler with title handling from first input
   const handleCreateNewChat = () => {
     // Clear any local storage for temporary messages
     localStorage.removeItem('tempChatMessages');
     
     // Set a flag to ensure completely fresh chat
     sessionStorage.setItem('forceNewChat', 'true');
+    
+    // Set a flag to handle title extraction from first message
+    sessionStorage.setItem('extractTitleFromFirstMessage', 'true');
     
     // Trigger the new chat creation in the parent component
     onNewChat();

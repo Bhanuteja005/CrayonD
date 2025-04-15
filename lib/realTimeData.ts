@@ -1,77 +1,62 @@
+const SERPER_API_KEY = process.env.SERPER_API_KEY;
+const NEWS_API_KEY = process.env.NEWS_API_KEY;
 
-/**
- * Functions to fetch real-time data from external sources
- */
-
-/**
- * Searches Google for the given query
- */
 export async function searchGoogle(query: string) {
-  try {
-    // For demo purposes, we'll return mock data
-    // In a real implementation, you would integrate with a search API like SerpAPI
-    
-    return {
-      organic: [
-        {
-          title: `${query} - Latest Information`,
-          snippet: `Find the most up-to-date information about ${query} including recent trends and developments.`,
-          link: `https://example.com/search?q=${encodeURIComponent(query)}`
-        },
-        {
-          title: `${query} Career Guide 2023`,
-          snippet: `Comprehensive guide to building a career in ${query}. Learn about skills, certifications, and job prospects.`,
-          link: `https://example.com/guide?topic=${encodeURIComponent(query)}`
-        },
-        {
-          title: `Top Companies Hiring for ${query} Roles`,
-          snippet: `Explore companies actively recruiting for ${query} positions, including salary ranges and requirements.`,
-          link: `https://example.com/jobs?keyword=${encodeURIComponent(query)}`
-        }
-      ]
-    };
-  } catch (error) {
-    console.error("Error searching Google:", error);
-    return { organic: [] };
+  
+  const response = await fetch('https://google.serper.dev/search', {
+    method: 'POST',
+    headers: {
+      'X-API-KEY': SERPER_API_KEY || '',
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ q: query })
+  });
+
+  if (!response.ok) {
+    throw new Error('Search API error');
   }
+
+  const data = await response.json();
+  return {
+    organic: data.organic?.map((result: any) => ({
+      title: result.title,
+      snippet: result.snippet,
+      link: result.link
+    })),
+    knowledge: data.knowledgeGraph,
+    answerBox: data.answerBox
+  };
 }
 
-/**
- * Fetches latest news related to the query
- */
 export async function getLatestNews(query: string) {
+  const url = `https://newsapi.org/v2/everything?q=${encodeURIComponent(query)}&sortBy=publishedAt&pageSize=3&language=en&apiKey=${NEWS_API_KEY}`;
+  
+  console.log('Fetching news for query:', query);
+  
   try {
-    // For demo purposes, we'll return mock data
-    // In a real implementation, you would integrate with a news API
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`News API error: ${response.statusText}`);
+    }
     
-    const today = new Date();
-    const yesterday = new Date(today);
-    yesterday.setDate(yesterday.getDate() - 1);
+    const data = await response.json();
+    console.log('News API response:', data);
     
+    if (!data.articles) {
+      throw new Error('No articles found');
+    }
+
     return {
-      articles: [
-        {
-          title: `Breaking: New Developments in ${query}`,
-          publishedAt: today.toISOString(),
-          description: `Latest industry updates reveal significant changes in ${query} that could impact job seekers and professionals alike.`,
-          url: `https://example.com/news?topic=${encodeURIComponent(query)}`
-        },
-        {
-          title: `${query} Market Trends for Q3 2023`,
-          publishedAt: yesterday.toISOString(),
-          description: `Analysts predict growth in ${query} sector with increasing demand for skilled professionals.`,
-          url: `https://example.com/trends?area=${encodeURIComponent(query)}`
-        },
-        {
-          title: `Interview Tips from ${query} Industry Leaders`,
-          publishedAt: yesterday.toISOString(),
-          description: `Top executives share insights on what they look for when interviewing candidates for ${query} positions.`,
-          url: `https://example.com/tips?industry=${encodeURIComponent(query)}`
-        }
-      ]
+      articles: data.articles.map((article: any) => ({
+        title: article.title,
+        description: article.description,
+        url: article.url,
+        source: article.source.name,
+        publishedAt: new Date(article.publishedAt).toLocaleDateString(),
+      }))
     };
   } catch (error) {
-    console.error("Error fetching news:", error);
-    return { articles: [] };
+    console.error('News API error:', error);
+    throw error;
   }
 }

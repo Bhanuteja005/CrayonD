@@ -37,6 +37,16 @@ interface MemoryContext {
   keywords?: string[];
   lastInteraction?: string;
   memories?: string[];
+  userDetails?: {
+    name?: string;
+    college?: string;
+    companies?: string[];
+    preferredRoles?: string[];
+    experience?: string;
+    skills?: string[];
+    interests?: string[];
+    [key: string]: any; // Allow for flexible additional properties
+  };
   userProfile?: any;
 }
 
@@ -153,7 +163,7 @@ export function ChatInterface({ chatId, onUpdateChatTitle }: ChatInterfaceProps)
     }
   }, [isLoadingHistory, profileData, hasCheckedTour]);
 
-  // Initialize session ID for memory persistence
+  // Initialize session ID for memory persistence - enhanced with global user memory
   useEffect(() => {
     const generateSessionId = () => {
       // Create unique session ID based on user and chat
@@ -161,23 +171,51 @@ export function ChatInterface({ chatId, onUpdateChatTitle }: ChatInterfaceProps)
         // Use combination of profile name and chat ID for persistence
         const sessionId = `user-${profileData.name?.toLowerCase().replace(/\s+/g, "-") || "anonymous"}-${chatId}`;
         
+        // First check for global user memory that persists across all chats
+        const globalUserMemory = localStorage.getItem(`global-user-memory-${profileData.name?.toLowerCase().replace(/\s+/g, "-") || "anonymous"}`);
+        let userDetails = {};
+        
+        if (globalUserMemory) {
+          try {
+            userDetails = JSON.parse(globalUserMemory);
+          } catch (e) {
+            console.error("Error parsing global user memory:", e);
+          }
+        }
+        
         setMemoryContext(prev => ({
           ...prev,
           sessionId,
           userProfile: profileData,
+          userDetails,
         }));
         
-        // Load any existing memory context from localStorage
+        // Load any existing memory context from localStorage for this specific chat
         const storedMemory = localStorage.getItem(`memory-context-${chatId}`);
         if (storedMemory) {
           try {
             const parsedMemory = JSON.parse(storedMemory);
+            
+            // Merge with the current user details to ensure we have the most complete profile
+            const mergedUserDetails = {
+              ...(userDetails || {}),
+              ...(parsedMemory.userDetails || {})
+            };
+            
             setMemoryContext(prev => ({
               ...prev,
               ...parsedMemory,
               sessionId, // Always ensure the session ID is correct
               userProfile: profileData,
+              userDetails: mergedUserDetails,
             }));
+            
+            // Update global user memory with any new details found
+            localStorage.setItem(
+              `global-user-memory-${profileData.name?.toLowerCase().replace(/\s+/g, "-") || "anonymous"}`,
+              JSON.stringify(mergedUserDetails)
+            );
+            
             setMemoryActive(true);
           } catch (e) {
             console.error("Error parsing memory context:", e);
@@ -220,6 +258,20 @@ export function ChatInterface({ chatId, onUpdateChatTitle }: ChatInterfaceProps)
     "Tips for handling salary negotiation questions"
   ];
 
+  // Add constant for interview coach system prompt - this ensures consistent constraints
+  const INTERVIEW_COACH_SYSTEM_PROMPT = `
+You are an Interview Preparation Coach, designed to help users prepare for job interviews.
+You should ONLY answer questions related to:
+- Job interviews and preparation
+- Career advice and professional development
+- Resume and cover letter help
+- Company research for interviews
+- Salary negotiation
+- Interview skills and techniques
+
+If asked about topics outside this scope, politely redirect the conversation back to interview preparation.
+`;
+
   // Enhanced function to extract keywords from user messages
   const extractKeywords = (text: string): string[] => {
     // Skip extraction if text is too short
@@ -258,7 +310,7 @@ export function ChatInterface({ chatId, onUpdateChatTitle }: ChatInterfaceProps)
       .map(entry => entry[0]);
   };
 
-  // Enhance memory when new messages are detected
+  // Enhanced memory update to extract and store more user details
   const updateMemoryWithLatestMessage = (userMessage: string, aiResponse: string) => {
     if (!memoryContext) return;
     
@@ -268,11 +320,15 @@ export function ChatInterface({ chatId, onUpdateChatTitle }: ChatInterfaceProps)
     // Combine keywords without duplicates
     const uniqueKeywords = [...new Set([...existingKeywords, ...keywords])].slice(0, 10);
     
+    // Update user details using information extraction
+    const userDetails = extractUserDetails(userMessage, memoryContext.userDetails || {});
+    
     // Update memory context
     const updatedContext: MemoryContext = {
       ...memoryContext,
       lastInteraction: new Date().toISOString(),
       keywords: uniqueKeywords,
+      userDetails,
     };
     
     // If this is the first message, capture conversation topic
@@ -290,21 +346,113 @@ export function ChatInterface({ chatId, onUpdateChatTitle }: ChatInterfaceProps)
     // Save updated context
     setMemoryContext(updatedContext);
     localStorage.setItem(`memory-context-${chatId}`, JSON.stringify(updatedContext));
+    
+    // Also update the global user memory to persist across all chats
+    if (profileData && profileData.name) {
+      localStorage.setItem(
+        `global-user-memory-${profileData.name.toLowerCase().replace(/\s+/g, "-") || "anonymous"}`,
+        JSON.stringify(userDetails)
+      );
+    }
+    
     setMemoryActive(true);
   };
 
-  // Set up the chat hook with initial messages
+  // Function to extract user details from messages
+  const extractUserDetails = (message: string, existingDetails: any = {}) => {
+    const details = { ...existingDetails };
+    
+    // Extract college information
+    const collegePatterns = [
+      /my college(?:\s+is)?\s+([A-Za-z0-9\s&.'-]+)/i,
+      /I(?:'m)? (?:studying|studied) at\s+([A-Za-z0-9\s&.'-]+)/i,
+      /I(?:'m)? from\s+([A-Za-z0-9\s&.'-]+)(?:\s+college|\s+university)/i,
+      /graduated from\s+([A-Za-z0-9\s&.'-]+)/i
+    ];
+    
+    collegePatterns.forEach(pattern => {
+      const match = message.match(pattern);
+      if (match && match[1]) {
+        details.college = match[1].trim();
+      }
+    });
+    
+    // Extract company information
+    const companyPatterns = [
+      /(?:work(?:ed|ing))? (?:at|for)\s+([A-Za-z0-9\s&.'-]+)/i,
+      /my company(?:\s+is)?\s+([A-Za-z0-9\s&.'-]+)/i,
+      /(?:interview|offer) (?:at|from|with)\s+([A-Za-z0-9\s&.'-]+)/i,
+      /placements? (?:at|with|from)\s+([A-Za-z0-9\s&.'-]+)/i,
+      /applying to\s+([A-Za-z0-9\s&.'-]+)/i,
+      /job (?:at|with)\s+([A-Za-z0-9\s&.'-]+)/i
+    ];
+    
+    companyPatterns.forEach(pattern => {
+      const match = message.match(pattern);
+      if (match && match[1]) {
+        const company = match[1].trim();
+        details.companies = details.companies || [];
+        if (!details.companies.includes(company)) {
+          details.companies.push(company);
+        }
+      }
+    });
+    
+    // Extract experience information
+    const experiencePatterns = [
+      /(\d+)\s+years? of experience/i,
+      /(?:worked|working) for\s+(\d+)\s+years?/i,
+      /experience (?:of|for)\s+(\d+)\s+years?/i
+    ];
+    
+    experiencePatterns.forEach(pattern => {
+      const match = message.match(pattern);
+      if (match && match[1]) {
+        details.experience = match[1].trim();
+      }
+    });
+    
+    // Extract role/position information
+    const rolePatterns = [
+      /(?:applying|interview) for\s+([A-Za-z0-9\s&.'-]+)\s+(?:position|role)/i,
+      /(?:I'm a|I am a|role as a|position as a|work as a)\s+([A-Za-z0-9\s&.'-]+)/i,
+      /my role is\s+([A-Za-z0-9\s&.'-]+)/i
+    ];
+    
+    rolePatterns.forEach(pattern => {
+      const match = message.match(pattern);
+      if (match && match[1]) {
+        const role = match[1].trim();
+        details.preferredRoles = details.preferredRoles || [];
+        if (!details.preferredRoles.includes(role)) {
+          details.preferredRoles.push(role);
+        }
+      }
+    });
+    
+    // Look for explicit mentions of product-based companies
+    if (message.toLowerCase().includes("product based company") || 
+        message.toLowerCase().includes("product-based company")) {
+      details.preferredCompanyType = "product-based";
+    }
+    
+    return details;
+  };
+
+  // Set up the chat hook with initial messages and system prompt
   const { messages, input, handleInputChange, handleSubmit, isLoading, setMessages } = useChat({
     id: chatId, 
     api: "/api/chat",
-    initialMessages: savedMessages,
+    initialMessages: savedMessages.length > 0 ? savedMessages : [
+      { id: 'system-1', role: 'system', content: INTERVIEW_COACH_SYSTEM_PROMPT }
+    ],
     body: {
       userProfile: profileData,
       searchType,
       query: searchType ? inputValue : null,
       dataSource: searchType ? 'search' : undefined,
       chatId,
-      memoryContext, // Pass memory context to API
+      memoryContext, // Pass enhanced memory context to API
     },
     onResponse: (response) => {
       setIsSearching(false)
@@ -314,17 +462,27 @@ export function ChatInterface({ chatId, onUpdateChatTitle }: ChatInterfaceProps)
       try {
         const responseObj = JSON.parse(response);
         if (responseObj.memoryContext) {
-          setMemoryContext(prev => ({
-            ...prev,
-            ...responseObj.memoryContext
-          }));
+          // Merge with existing memory context
+          const updatedMemoryContext = {
+            ...memoryContext,
+            ...responseObj.memoryContext,
+            userDetails: {
+              ...(memoryContext?.userDetails || {}),
+              ...(responseObj.memoryContext.userDetails || {})
+            }
+          };
           
-          // Update localStorage
-          localStorage.setItem(`memory-context-${chatId}`, 
-            JSON.stringify({
-              ...memoryContext,
-              ...responseObj.memoryContext
-            }));
+          setMemoryContext(updatedMemoryContext);
+          
+          // Update localStorage for both chat-specific and global user memory
+          localStorage.setItem(`memory-context-${chatId}`, JSON.stringify(updatedMemoryContext));
+          
+          if (profileData && profileData.name && updatedMemoryContext.userDetails) {
+            localStorage.setItem(
+              `global-user-memory-${profileData.name.toLowerCase().replace(/\s+/g, "-") || "anonymous"}`,
+              JSON.stringify(updatedMemoryContext.userDetails)
+            );
+          }
             
           setMemoryActive(true);
           
@@ -367,6 +525,18 @@ export function ChatInterface({ chatId, onUpdateChatTitle }: ChatInterfaceProps)
       }
     }
   })
+
+  // Get appropriate placeholder text based on current search mode
+  const getPlaceholderText = () => {
+    switch (searchMode) {
+      case 'web':
+        return 'Search the web for companies, roles, industry info...'
+      case 'news':
+        return 'Search for latest news in your industry...'
+      default:
+        return 'Ask about interview questions, practice answers, or get feedback...'
+    }
+  }
 
   // Optimize profile loading - memoize to prevent unnecessary re-renders
   const loadProfileData = useCallback(async () => {
@@ -414,37 +584,56 @@ export function ChatInterface({ chatId, onUpdateChatTitle }: ChatInterfaceProps)
         
         console.log(`Fetching messages for chat ${chatId}...`)
         
-        // First try to load from localStorage as a fallback
-        const localMessages = localStorage.getItem(`chat_messages_${chatId}`)
-        if (localMessages) {
-          console.log(`Found ${JSON.parse(localMessages).length} messages in localStorage for chat ${chatId}`)
-          const parsedMessages = JSON.parse(localMessages)
-          if (parsedMessages.length > 0) {
-            setSavedMessages(parsedMessages)
-            setMessageHistory(parsedMessages)
-            
-            // Immediately update useChat's messages to ensure they appear
-            setMessages(parsedMessages)
-            
-            setIsLoadingHistory(false)
-            return
-          }
+        // If it's a new chat, initialize with the system prompt
+        if (chatId.startsWith('new-') || !process.env.NEXT_PUBLIC_USE_PINECONE) {
+          console.log('New chat or Pinecone disabled, initializing with system prompt')
+          const initialMessages: Message[] = [{ 
+            id: 'system-1', 
+            role: "system" as "system", 
+            content: INTERVIEW_COACH_SYSTEM_PROMPT 
+          }];
+          setSavedMessages(initialMessages as Message[])
+          setMessages(initialMessages as Message[])
+          setIsLoadingHistory(false)
+          setShowSuggestions(true)
+          return
         }
         
-        // No need to check server if it's a new chat
-        if (chatId.startsWith('new-') || !process.env.NEXT_PUBLIC_USE_PINECONE) {
-          console.log('New chat or Pinecone disabled, skipping server fetch')
-          setSavedMessages([])
-          setMessages([]) // Ensure messages are reset for new chats
-          setIsLoadingHistory(false)
-          setShowSuggestions(true) // Show suggestions for new chats
-          return
+        // First try to load from localStorage as a fallback
+        const localMessages = localStorage.getItem(`chat_messages_${chatId}`)
+        let loadedMessages = [];
+        
+        if (localMessages) {
+          console.log(`Found messages in localStorage for chat ${chatId}`)
+          try {
+            loadedMessages = JSON.parse(localMessages);
+            
+            // Ensure the system prompt is included
+            if (!loadedMessages.some((msg: Message) => msg.role === 'system')) {
+              loadedMessages.unshift({ 
+                id: 'system-1', 
+                role: 'system', 
+                content: INTERVIEW_COACH_SYSTEM_PROMPT 
+              });
+            }
+            
+            setSavedMessages(loadedMessages)
+            setMessages(loadedMessages)
+            setMessageHistory(loadedMessages)
+            
+            // Continue with server fetch, but we already have local messages
+          } catch (error) {
+            console.error('Error parsing local messages:', error)
+          }
         }
         
         // Then try to fetch from server (Pinecone) if available
         try {
           const response = await fetch(`/api/messages?chatId=${chatId}`, {
             method: 'GET',
+            headers: {
+              'Cache-Control': 'no-cache'
+            }
           })
           
           if (!response.ok) {
@@ -454,20 +643,45 @@ export function ChatInterface({ chatId, onUpdateChatTitle }: ChatInterfaceProps)
           const data = await response.json()
           if (data.messages && data.messages.length > 0) {
             console.log(`Loaded ${data.messages.length} messages from server`)
-            setSavedMessages(data.messages)
-            setMessages(data.messages) 
-          } else {
-            setSavedMessages([])
+            
+            // Ensure the system prompt is included
+            let serverMessages = data.messages;
+            if (!serverMessages.some((msg: Message) => msg.role === 'system')) {
+              serverMessages.unshift({ 
+                id: 'system-1', 
+                role: 'system', 
+                content: INTERVIEW_COACH_SYSTEM_PROMPT 
+              });
+            }
+            
+            setSavedMessages(serverMessages)
+            setMessages(serverMessages)
+            setMessageHistory(serverMessages)
+            
+            // Save the fresh server messages to localStorage
+            localStorage.setItem(`chat_messages_${chatId}`, JSON.stringify(serverMessages));
+          } else if (loadedMessages.length === 0) {
+            // If we didn't get messages from server and don't have local ones
+            // Initialize with system prompt
+            const initialMessages = [{ 
+              id: 'system-1', 
+              role: 'system', 
+              content: INTERVIEW_COACH_SYSTEM_PROMPT 
+            }];
+            setSavedMessages(initialMessages as Message[])
+            setMessages(initialMessages as Message[])
           }
         } catch (error) {
           console.error('Error fetching chat history from server:', error)
-          // If server fetch fails, try local storage again
-          const localMessages = localStorage.getItem(`chat_messages_${chatId}`)
-          if (localMessages) {
-            setSavedMessages(JSON.parse(localMessages))
-            setMessages(JSON.parse(localMessages))
-          } else {
-            setSavedMessages([])
+          // If server fetch fails and we don't have local messages yet
+          if (loadedMessages.length === 0) {
+            const initialMessages = [{ 
+              id: 'system-1', 
+              role: 'system', 
+              content: INTERVIEW_COACH_SYSTEM_PROMPT 
+            }];
+            setSavedMessages(initialMessages as Message[])
+            setMessages(initialMessages as Message[])
           }
         }
       } catch (error) {
@@ -478,15 +692,21 @@ export function ChatInterface({ chatId, onUpdateChatTitle }: ChatInterfaceProps)
           variant: "destructive",
         })
         
-        setSavedMessages([])
-        setMessages([]) // Reset messages on error
+        // Always initialize with system prompt on error
+        const initialMessages = [{ 
+          id: 'system-1', 
+          role: 'system', 
+          content: INTERVIEW_COACH_SYSTEM_PROMPT 
+        }];
+        setSavedMessages(initialMessages)
+        setMessages(initialMessages)
       } finally {
         setIsLoadingHistory(false)
       }
     }
     
     fetchMessagesFromServer()
-  }, [chatId, setMessages])
+  }, [chatId, setMessages, INTERVIEW_COACH_SYSTEM_PROMPT])
 
   // Function to update chat title on the server
   const updateChatTitleOnServer = async (chatId: string, title: string) => {
@@ -622,11 +842,44 @@ export function ChatInterface({ chatId, onUpdateChatTitle }: ChatInterfaceProps)
     }
   }
 
+  // Improved message validation before sending
   const handleSendMessage = () => {
     if (!inputValue.trim() || isLoading || isSearching || apiCallInProgress.current) return
     
     // Set API call in progress
     apiCallInProgress.current = true
+    
+    // Check if this is the first message and we should extract a title
+    const shouldExtractTitle = sessionStorage.getItem('extractTitleFromFirstMessage') === 'true';
+    
+    // For chat mode, validate that the question is interview-related
+    if (searchMode === 'chat' && !isInterviewRelatedQuestion(inputValue)) {
+      toast({
+        title: "Interview Coach Focus",
+        description: "I'm your Interview Coach! Please ask me about job interviews, career advice, or professional development.",
+        variant: "default",
+      })
+      
+      // Add a system message that redirects
+      setMessages((prev: Message[]) => [
+        ...prev,
+        { 
+          id: `user-${Date.now()}`, 
+          role: 'user', 
+          content: inputValue 
+        },
+        { 
+          id: `system-redirect-${Date.now()}`, 
+          role: 'assistant', 
+          content: "I'm your Interview Coach, so I'm here to help specifically with interview preparation and career questions. Please ask me something related to job interviews, career development, or professional skills." 
+        }
+      ]);
+      
+      // Reset input and API call flag
+      setInputValue("");
+      apiCallInProgress.current = false;
+      return;
+    }
     
     // Set isSearching when performing a search
     if (searchMode !== 'chat') {
@@ -635,6 +888,31 @@ export function ChatInterface({ chatId, onUpdateChatTitle }: ChatInterfaceProps)
     
     // Show typing indicator
     setTypingIndicator(true)
+    
+    // Ensure system prompt is present
+    if (messages.length === 0 || !messages.some(msg => msg.role === 'system')) {
+      setMessages(prev => [
+        { id: 'system-1', role: 'system', content: INTERVIEW_COACH_SYSTEM_PROMPT },
+        ...prev.filter(msg => msg.role !== 'system')
+      ]);
+    }
+    
+    // If this is the first message and the flag is set, update the chat title
+    if (shouldExtractTitle && messages.length <= 1 && onUpdateChatTitle) {
+      // Extract title from first message
+      const title = inputValue.length > 40 
+        ? `${inputValue.substring(0, 40)}...` 
+        : inputValue;
+      
+      // Update chat title
+      onUpdateChatTitle(title);
+      
+      // Clear the flag
+      sessionStorage.removeItem('extractTitleFromFirstMessage');
+      
+      // Also update the title in server
+      updateChatTitleOnServer(chatId, title).catch(console.error);
+    }
     
     // Use the submit method from useChat with the form event
     const formEvent = {
@@ -658,18 +936,45 @@ export function ChatInterface({ chatId, onUpdateChatTitle }: ChatInterfaceProps)
     }, 100)
   }
 
+  // Function to validate if a question is interview-related
+  const isInterviewRelatedQuestion = (question: string): boolean => {
+    // Skip validation for search modes
+    if (searchMode !== 'chat') return true;
+    
+    // Always allow short questions - they might be follow-ups
+    if (question.length < 15) return true;
+    
+    // List of interview-related keywords
+    const interviewKeywords = [
+      'interview', 'resume', 'cv', 'job', 'career', 'skill', 'experience', 'question',
+      'behavioral', 'technical', 'salary', 'negotiation', 'offer', 'company', 'feedback',
+      'prepare', 'answer', 'hire', 'recruitment', 'recruiter', 'position', 'application',
+      'industry', 'professional', 'employer', 'employee', 'work', 'role', 'responsibility',
+      'qualification', 'strength', 'weakness', 'achievement', 'challenge', 'opportunity',
+      'team', 'leadership', 'management', 'communicate', 'project', 'goal', 'performance',
+      'culture', 'fit', 'remote', 'hybrid', 'office', 'background', 'education', 'degree',
+      'certification', 'portfolio', 'reference', 'cover letter', 'linkedin', 'network'
+    ];
+    
+    // Simple check if any of the keywords are in the question
+    const lowerQuestion = question.toLowerCase();
+    return interviewKeywords.some(keyword => lowerQuestion.includes(keyword));
+  };
+
   const handleSuggestionClick = (suggestion: string) => {
     setInputValue(suggestion)
     
     // Schedule to send the message after state update
     setTimeout(() => {
-      // Create a fake form event
+      // Always allow suggestions since they're pre-defined interview questions
+      handleInputChange({ target: { value: suggestion } } as React.ChangeEvent<HTMLInputElement>)
+      
+      // Use the submit method with the form event
       const formEvent = {
         preventDefault: () => {},
         currentTarget: document.createElement('form')
       } as unknown as React.FormEvent<HTMLFormElement>
       
-      handleInputChange({ target: { value: suggestion } } as React.ChangeEvent<HTMLInputElement>)
       handleSubmit(formEvent)
       setShowSuggestions(false)
       setTypingIndicator(true)
@@ -697,6 +1002,12 @@ export function ChatInterface({ chatId, onUpdateChatTitle }: ChatInterfaceProps)
     // Filter out any remaining memory context JSON that might have made it through
     if (parsedContent.includes('{"memoryContext":')) {
       parsedContent = parsedContent.replace(/\n\n\{\"memoryContext\":.+\}$/s, '');
+    }
+    
+    // Filter out system prompt message that shows up at beginning of conversations
+    if (parsedContent.includes('You are an Interview Preparation Coach') && 
+        parsedContent.includes('politely redirect the conversation back to interview preparation')) {
+      return ""; // Return empty content for system prompt messages that leaked through
     }
     
     // If content is already in markdown format (from search results), return as is
@@ -731,36 +1042,43 @@ export function ChatInterface({ chatId, onUpdateChatTitle }: ChatInterfaceProps)
     return formattedContent
   }
 
-  // Get appropriate placeholder text based on current search mode
-  const getPlaceholderText = () => {
-    switch (searchMode) {
-      case 'web':
-        return 'Search the web for companies, roles, industry info...'
-      case 'news':
-        return 'Search for latest news in your industry...'
-      default:
-        return 'Ask about interview questions, practice answers, or get feedback...'
-    }
-  }
-  
   // Function to render message content with appropriate animations
   const renderMessageContent = (message: Message) => {
     if (message.role === "user") {
       return <div className="text-white">{message.content}</div>
     }
     
+    // Don't render system messages
+    if (message.role === "system") {
+      return null;
+    }
+    
     return (
       <div className="prose prose-sm max-w-none prose-headings:mb-2 prose-headings:mt-1 prose-headings:text-blue-800 prose-p:my-2 prose-ul:my-2 prose-li:my-1">
-        <ReactMarkdown>{formatMessageContent(message.content)}</ReactMarkdown>
+        <ReactMarkdown
+          components={{
+            // Make all links open in a new tab
+            a: ({ node, ...props }) => (
+              <a {...props} target="_blank" rel="noopener noreferrer" />
+            ),
+          }}
+        >
+          {formatMessageContent(message.content)}
+        </ReactMarkdown>
       </div>
     )
   }
   
   // Group consecutive messages from the same sender
   const groupedMessages = messages.reduce((acc: any[], message, index) => {
+    // Skip system messages when grouping
+    if (message.role === "system") {
+      return acc;
+    }
+    
     const prevMessage = messages[index - 1];
     
-    if (index === 0 || prevMessage.role !== message.role) {
+    if (index === 0 || !prevMessage || prevMessage.role !== message.role) {
       // Start a new group
       acc.push({
         role: message.role,
@@ -840,13 +1158,25 @@ export function ChatInterface({ chatId, onUpdateChatTitle }: ChatInterfaceProps)
     }
   }
   
-  // Handler to create a new chat - improved version
+  // Enhanced handler for new chat - preserve memory context
   const handleNewChat = () => {
     const newChatId = `new-${uuidv4()}`
     
     // Clear any existing messages and set flags
     localStorage.removeItem(`chat_messages_${newChatId}`);
     sessionStorage.setItem('forceNewChat', 'true');
+    
+    // Preserve memory context but clear chat-specific memories
+    if (memoryContext) {
+      const newMemoryContext = {
+        ...memoryContext,
+        conversationTopic: undefined,
+        memories: [],
+        lastInteraction: new Date().toISOString()
+      };
+      
+      localStorage.setItem(`memory-context-${newChatId}`, JSON.stringify(newMemoryContext));
+    }
     
     // Directly update local state
     setSavedMessages([]);
@@ -866,7 +1196,11 @@ export function ChatInterface({ chatId, onUpdateChatTitle }: ChatInterfaceProps)
     // Reset messages if a fresh start is requested
     if (isFresh && chatId.startsWith('new-')) {
       setSavedMessages([]);
-      setMessages([]);
+      setMessages([{ 
+        id: 'system-1', 
+        role: 'system', 
+        content: INTERVIEW_COACH_SYSTEM_PROMPT 
+      }]);
       setShowSuggestions(true);
       
       // Clear the flag from sessionStorage
@@ -890,6 +1224,40 @@ export function ChatInterface({ chatId, onUpdateChatTitle }: ChatInterfaceProps)
       sessionStorage.removeItem('forceNewChat');
     }
   }, [chatId]);
+
+  // Always show suggestions for new chats
+  useEffect(() => {
+    if (chatId.startsWith('new-') || messages.length === 0 || 
+        (messages.length === 1 && messages[0].role === 'system')) {
+      setShowSuggestions(true);
+    }
+  }, [chatId, messages]);
+
+  // Improve message persistence when component unmounts
+  useEffect(() => {
+    return () => {
+      // Save messages to localStorage when component unmounts
+      if (messages.length > 0 && chatId) {
+        localStorage.setItem(`chat_messages_${chatId}`, JSON.stringify(messages));
+      }
+    };
+  }, [messages, chatId]);
+
+  // Add window event listener to ensure chat is saved before navigation
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      // Save current chat state to localStorage before navigating away
+      if (messages.length > 0 && chatId) {
+        localStorage.setItem(`chat_messages_${chatId}`, JSON.stringify(messages));
+      }
+    };
+    
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      handleBeforeUnload(); // Also save on component unmount
+    };
+  }, [messages, chatId]);
 
   return (
     <div className="flex flex-col h-full overflow-hidden bg-slate-50">
@@ -974,7 +1342,7 @@ export function ChatInterface({ chatId, onUpdateChatTitle }: ChatInterfaceProps)
               </div>
               <p className="text-xs text-slate-400">Chat ID: {chatId.substring(0, 8)}...</p>
             </motion.div>
-          ) : messages.length === 0 ? (
+          ) : (messages.length === 0 || (messages.length === 1 && messages[0].role === 'system')) ? (
             <motion.div 
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
@@ -988,43 +1356,41 @@ export function ChatInterface({ chatId, onUpdateChatTitle }: ChatInterfaceProps)
                 <h3 className="text-xl font-semibold text-slate-800 mb-2">Interview Coach</h3>
                 <p className="text-slate-600 mb-6">I can help you prepare for interviews with personalized advice and real-time information.</p>
                 
-                {/* Quick start suggestions */}
-                {showSuggestions && (
-                  <div className="space-y-2">
-                    <p className="text-sm font-medium text-slate-700">Try asking about:</p>
-                    <div className="grid grid-cols-1 gap-2 mt-2">
-                      {getSuggestions().map((suggestion, index) => (
-                        <motion.button
-                          key={index}
-                          className="text-left p-3 bg-slate-50 hover:bg-blue-50 border border-slate-200 hover:border-blue-200 rounded-lg text-slate-700 hover:text-blue-700 transition-colors"
-                          onClick={() => handleSuggestionClick(suggestion)}
-                          initial={{ opacity: 0, y: 5 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          transition={{ delay: 0.1 * index }}
-                          whileHover={{ scale: 1.01 }}
-                        >
-                          <div className="flex">
-                            {index === 0 ? 
-                              <Briefcase className="mr-2 h-4 w-4 text-blue-600 flex-shrink-0" /> :
-                              index === 1 ? 
-                                <Star className="mr-2 h-4 w-4 text-amber-500 flex-shrink-0" /> :
-                                index === 2 ? 
-                                  <HelpCircle className="mr-2 h-4 w-4 text-purple-500 flex-shrink-0" /> :
-                                  <Lightbulb className="mr-2 h-4 w-4 text-emerald-500 flex-shrink-0" />
-                            }
-                            <span>{suggestion}</span>
-                          </div>
-                        </motion.button>
-                      ))}
-                    </div>
+                {/* Show suggestions for new/empty chats */}
+                <div className="space-y-2">
+                  <p className="text-sm font-medium text-slate-700">Try asking about:</p>
+                  <div className="grid grid-cols-1 gap-2 mt-2">
+                    {getSuggestions().map((suggestion, index) => (
+                      <motion.button
+                        key={index}
+                        className="text-left p-3 bg-slate-50 hover:bg-blue-50 border border-slate-200 hover:border-blue-200 rounded-lg text-slate-700 hover:text-blue-700 transition-colors"
+                        onClick={() => handleSuggestionClick(suggestion)}
+                        initial={{ opacity: 0, y: 5 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: 0.1 * index }}
+                        whileHover={{ scale: 1.01 }}
+                      >
+                        <div className="flex">
+                          {index === 0 ? 
+                            <Briefcase className="mr-2 h-4 w-4 text-blue-600 flex-shrink-0" /> :
+                            index === 1 ? 
+                              <Star className="mr-2 h-4 w-4 text-amber-500 flex-shrink-0" /> :
+                              index === 2 ? 
+                                <HelpCircle className="mr-2 h-4 w-4 text-purple-500 flex-shrink-0" /> :
+                                <Lightbulb className="mr-2 h-4 w-4 text-emerald-500 flex-shrink-0" />
+                          }
+                          <span>{suggestion}</span>
+                        </div>
+                      </motion.button>
+                    ))}
                   </div>
-                )}
+                </div>
               </div>
             </motion.div>
           ) : (
             <>
               <AnimatePresence mode="popLayout">
-                {groupedMessages.map((group, groupIndex) => (
+                {groupedMessages.filter(group => group.role !== "system").map((group, groupIndex) => (
                   <motion.div
                     key={`group-${groupIndex}`}
                     initial={{ opacity: 0, y: 10 }}

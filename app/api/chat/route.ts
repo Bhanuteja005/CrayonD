@@ -150,6 +150,27 @@ export async function POST(req: Request) {
       ${memoryData.lastInteraction ? `The last interaction was on: ${new Date(memoryData.lastInteraction).toDateString()}` : ''}
       ${memoryData.keywords && memoryData.keywords.length > 0 ? `Key topics discussed: ${memoryData.keywords.join(', ')}` : ''}
       
+      STRICT GUIDELINES:
+      1. You are ONLY allowed to answer questions related to:
+         - Job interviews and preparation
+         - Career advice and professional development 
+         - Resume and cover letter help
+         - Company research for interviews
+         - Salary negotiation
+         - Interview skills and techniques
+      
+      2. If the user asks questions completely unrelated to interviews, career, or professional development, 
+         politely redirect them back to interview topics. Say: "I'm your Interview Coach, so I'm here to help 
+         with interview preparation. Let's focus on how I can help you succeed in your job interviews."
+      
+      3. You should NOT answer questions about:
+         - General knowledge unrelated to careers
+         - Political topics
+         - Entertainment
+         - Personal relationship advice
+         - Health advice
+         - Any topic unrelated to professional development
+      
       Your capabilities:
       1. Provide common interview questions for the user's target role
       2. Give feedback on the user's practice answers
@@ -221,15 +242,63 @@ export async function POST(req: Request) {
       lastInteraction: new Date().toISOString(),
     };
 
+    // Add this to your existing API route before calling the LLM
+    const enhancedSystemPrompt = (memoryContext: any, basePrompt: string) => {
+      if (!memoryContext) return basePrompt;
+      
+      // Build personalized context based on user details
+      let personalContext = "";
+      
+      if (memoryContext.userDetails) {
+        const details = memoryContext.userDetails;
+        
+        if (details.name) {
+          personalContext += `The user's name is ${details.name}. `;
+        }
+        
+        if (details.college) {
+          personalContext += `The user studied at ${details.college}. `;
+        }
+        
+        if (details.companies && details.companies.length > 0) {
+          personalContext += `The user has mentioned working at or being interested in these companies: ${details.companies.join(', ')}. `;
+        }
+        
+        if (details.preferredCompanyType) {
+          personalContext += `The user has mentioned preference for ${details.preferredCompanyType} companies. `;
+        }
+        
+        if (details.preferredRoles && details.preferredRoles.length > 0) {
+          personalContext += `The user has mentioned these roles: ${details.preferredRoles.join(', ')}. `;
+        }
+        
+        if (details.experience) {
+          personalContext += `The user has ${details.experience} years of experience. `;
+        }
+      }
+      
+      // Add previous conversation memories if available
+      if (memoryContext.memories && memoryContext.memories.length > 0) {
+        personalContext += "\n\nHere are some relevant previous exchanges with this user:\n";
+        memoryContext.memories.forEach((memory: string, index: number) => {
+          personalContext += `Memory ${index + 1}: ${memory}\n\n`;
+        });
+      }
+      
+      // Return enhanced prompt
+      return `${basePrompt}\n\nImportant user context: ${personalContext}\n\nRemember to reference this user context naturally in your responses when relevant, but don't explicitly mention that you're using "stored memories". Make your responses personal and contextual.`;
+    };
+
     // Initialize Gemini with the correct model
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
     const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
     try {
       // Generate response using Gemini
+      const systemPrompt = enhancedSystemPrompt(updatedMemoryContext, systemMessage);
       const result = await model.generateContent({
         contents: [
-          { role: 'user', parts: [{ text: systemMessage + "\n\nCurrent user question: " + userMessage }] }
+          { role: 'user', parts: [{ text: systemPrompt + "\n\nCurrent user question: " + userMessage }] }
         ],
         generationConfig: {
           temperature: 0.7,
