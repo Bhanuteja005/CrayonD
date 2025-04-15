@@ -55,7 +55,7 @@ function Navbar() {
 }
 
 // Feature Card Component
-function FeatureCard({ icon, title, description }) {
+function FeatureCard({ icon, title, description }: { icon: React.ReactNode; title: string; description: string }) {
   return (
     <div className="bg-white p-6 rounded-lg shadow-md border border-gray-100">
       <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center text-blue-600 mb-4">
@@ -68,7 +68,7 @@ function FeatureCard({ icon, title, description }) {
 }
 
 // Use Case Card Component
-function UseCaseCard({ emoji, title, description, example }) {
+function UseCaseCard({ emoji, title, description, example }: { emoji: string; title: string; description: string; example: string }) {
   return (
     <div className="bg-white p-6 rounded-lg shadow-md border border-gray-100">
       <div className="flex items-center mb-4">

@@ -17,10 +17,44 @@ export async function GET(request: NextRequest) {
     // Initialize Pinecone store
     const pineconeStore = await PineconeStore.getInstance();
     
-    // Get messages for the chat
-    const messages = await pineconeStore.getChatMessages(chatId);
+    // Get messages for the chat with retry mechanism
+    let messages = [];
+    let retryCount = 0;
+    const maxRetries = 2;
     
-    return NextResponse.json({ messages });
+    while (retryCount <= maxRetries) {
+      try {
+        messages = await pineconeStore.getChatMessages(chatId);
+        
+        // If we got messages, break out of retry loop
+        if (messages && messages.length > 0) {
+          break;
+        }
+        
+        // If no messages and not the last retry, wait briefly and try again
+        if (retryCount < maxRetries) {
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+        
+        retryCount++;
+      } catch (fetchError) {
+        console.error(`Attempt ${retryCount + 1} failed to fetch messages:`, fetchError);
+        if (retryCount >= maxRetries) throw fetchError;
+        retryCount++;
+      }
+    }
+    
+    // Add cache control headers to prevent stale data
+    return NextResponse.json(
+      { messages, timestamp: new Date().toISOString() },
+      { 
+        headers: {
+          'Cache-Control': 'no-store, max-age=0',
+          'Pragma': 'no-cache',
+          'Expires': '0'
+        } 
+      }
+    );
   } catch (error) {
     console.error("Error fetching chat messages:", error);
     return NextResponse.json({ error: "Failed to fetch messages" }, { status: 500 });
