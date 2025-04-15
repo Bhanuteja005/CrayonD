@@ -29,22 +29,17 @@ An AI-powered chatbot that helps users prepare for interviews with personalized 
 
 ## 🧠 Architecture
 
-Check the diagram: `interview-coach-architecture.mermaid`
+![Interview Coach Architecture](/public/123.png)
 
-```
-[User] --> [Chat UI] --> [API Route (/api/chat)] --> [Gemini + Memory Search (Pinecone)] --> [Response]
-```
+The architecture shows how user interactions flow from the Chat UI through the API route to the AI model with memory integration via Pinecone, ultimately delivering contextualized responses.
 
 ---
 
 ## 🔁 Memory Flow
 
-Check the diagram: `memory-flow.mermaid`
+![Memory Management Flow](/public/321.png)
 
-```
-[Chat Input] --> [Embed & Store to Pinecone]
-[New Query] --> [Embed & Search Pinecone] --> [Relevant Memories + New Input] --> [Gemini]
-```
+The memory flow illustrates how chat inputs are embedded and stored in Pinecone, and how new queries retrieve relevant memories to maintain context across conversations.
 
 ---
 
@@ -73,8 +68,9 @@ Create a `.env.local` file:
 ```env
 GEMINI_API_KEY=your_key
 PINECONE_API_KEY=your_key
-PINECONE_ENVIRONMENT=your_env
 PINECONE_INDEX_NAME=your_index
+PINECONE_CLOUD=your_cloud
+PINECONE_REGION=your_region
 SERPER_API_KEY=your_key
 NEWS_API_KEY=your_key
 ```
@@ -85,8 +81,8 @@ NEWS_API_KEY=your_key
 
 1. Fill your **profile** (role, skills, experience)
 2. Ask questions like:
-   - “Give me 5 intermediate-level questions for a React developer”
-   - “What skills are in demand for Data Science?”
+   - "Give me 5 intermediate-level questions for a React developer"
+   - "What skills are in demand for Data Science?"
 3. Come back later — it still remembers you.
 
 ---
@@ -110,7 +106,6 @@ NEWS_API_KEY=your_key
   ├─ /components
   ├─ /lib
   └─ /utils
-.mermaid diagrams
 .env.local
 README.md
 ```
